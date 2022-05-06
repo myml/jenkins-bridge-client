@@ -1,10 +1,12 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -15,6 +17,8 @@ import (
 
 	"github.com/dlclark/regexp2"
 	"github.com/go-resty/resty/v2"
+	"github.com/google/go-github/v44/github"
+	"github.com/myml/ghtoken"
 )
 
 // Client 客户端
@@ -23,6 +27,15 @@ type Client struct {
 	host     string
 	token    string
 	id       int
+
+	gh *github.Client
+}
+
+func NewClient() *Client {
+	var client Client
+	tr := ghtoken.NewGitHubToken(http.DefaultTransport)
+	client.gh = github.NewClient(&http.Client{Transport: tr})
+	return &client
 }
 
 // GetApiJobCancel 取消任务
@@ -340,6 +353,12 @@ func (cl *Client) PostApiJobArchlinux() {
 func (cl *Client) PostApiJobBuild() {
 	client := resty.New()
 	client.SetRetryCount(3).SetRetryWaitTime(5 * time.Second).SetRetryMaxWaitTime(20 * time.Second)
+
+	user, _, err := cl.gh.Users.Get(context.Background(), os.Getenv("GITHUB_ACTOR"))
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	resp, err := client.R().
 		//// debug pr https://github.com/linuxdeepin/dde-dock/pull/364
 		//SetBody(Build{
@@ -357,6 +376,7 @@ func (cl *Client) PostApiJobBuild() {
 			Project:       GetProject(),
 			RequestEvent:  os.Getenv("GITHUB_EVENT_NAME"),
 			RequestId:     GetReqId(),
+			AuthorEmail:   user.GetEmail(),
 		}).
 		SetHeader("Accept", "application/json").
 		SetHeader("X-token", cl.token).
@@ -422,7 +442,7 @@ func main() {
 	flag.StringVar(&host, "host", "", "bridge server address")
 	flag.Parse()
 
-	var cl Client
+	cl := NewClient()
 	cl.job_name = jobName
 	if len(host) > 0 {
 		cl.host = host
